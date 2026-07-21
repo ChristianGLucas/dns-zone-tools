@@ -1,0 +1,159 @@
+name: christiangeorgelucas/dns-zone-tools
+version: 0.1.0
+language: typescript
+description: >-
+  Deterministic parsing, inspection, and generation of DNS zone files
+  (BIND / RFC 1035 master-file format). Every node is a pure text
+  transform: the zone file is always supplied as a string by the caller —
+  no DNS resolution, no network queries, no wall-clock, no randomness.
+  Wraps the parsing/generation algorithm from dns-zonefile (elgs/dns-
+  zonefile, ISC license), vendored in-tree as TypeScript to avoid an
+  ESM/CommonJS interop hazard in the upstream npm package. Covers the
+  zone-file surface broadly: full structured parse grouped by record
+  type; SOA/NS/A/AAAA/CNAME/MX/TXT extraction plus a generic by-type
+  lister for SRV/PTR/CAA/SPF/DS; SPF/DKIM/DMARC identification by TXT
+  marker prefix; $ORIGIN/$TTL directive extraction; per-type record
+  counts; zone generation (the inverse of parsing); structural
+  validation (SOA/NS presence, numeric serial); declared-name
+  extraction; and relative/FQDN name normalization against $ORIGIN.
+  Input is bounded (2 MiB text, 20,000 records) and a malformed zone
+  file returns a structured error rather than crashing.
+nodes:
+    - name: ParseZoneFile
+      input: ZoneFileInput
+      output: ZoneFile
+      description: >-
+        Parse a full BIND/RFC1035 zone file into a structured record set
+        grouped by type (SOA, NS, A, AAAA, CNAME, MX, TXT, SPF, PTR, SRV,
+        CAA, DS) plus the $ORIGIN/$TTL directives. This is the canonical
+        parse — every other extraction node re-runs the same parser
+        scoped to one concern, so this is the node to use when you need
+        everything at once. Oversized input (>2 MiB or >20,000 records)
+        or a zone file the parser cannot make sense of returns a
+        structured error instead of a crash.
+    - name: ExtractSoa
+      input: ZoneFileInput
+      output: SoaRecord
+      description: >-
+        Parse a zone file and return just its SOA (Start of Authority)
+        record: primary nameserver (mname), admin mailbox (rname, DNS-
+        encoded), serial, and the refresh/retry/expire/minimum timers.
+        Returns a structured error if the zone file has no SOA record or
+        is malformed.
+    - name: ListRecordsByType
+      input: ListRecordsByTypeInput
+      output: RecordList
+      description: >-
+        Parse a zone file and list every record of one caller-chosen type
+        (SOA, NS, A, AAAA, CNAME, MX, TXT, PTR, SRV, SPF, CAA, or DS —
+        case-insensitive), as generic name/type/ttl/fields records. Use
+        this for any type, including the ones (SRV, PTR, CAA, SPF, DS)
+        that don't have a dedicated extraction node. An unrecognized
+        record_type or a malformed zone file returns a structured error.
+    - name: ExtractAddressRecords
+      input: ExtractAddressRecordsInput
+      output: AddressRecordList
+      description: >-
+        Parse a zone file and return every A and/or AAAA record as
+        name -> address pairs, each tagged with its IP version (4 or 6).
+        version_filter narrows to just A (4) or just AAAA (6) records;
+        0 (the default) returns both. A malformed zone file returns a
+        structured error.
+    - name: ExtractMxRecords
+      input: ZoneFileInput
+      output: MxRecordList
+      description: >-
+        Parse a zone file and return every MX record (mail exchange
+        preference + host), sorted ascending by preference per RFC 5321
+        (the lowest-numbered preference is the most-preferred exchange).
+        A malformed zone file returns a structured error.
+    - name: ExtractNsRecords
+      input: ZoneFileInput
+      output: NsRecordList
+      description: >-
+        Parse a zone file and return every NS (nameserver) record. A
+        malformed zone file returns a structured error.
+    - name: ExtractCnameRecords
+      input: ZoneFileInput
+      output: CnameRecordList
+      description: >-
+        Parse a zone file and return every CNAME record as alias -> target
+        pairs. A malformed zone file returns a structured error.
+    - name: ExtractTxtRecords
+      input: ZoneFileInput
+      output: TxtRecordList
+      description: >-
+        Parse a zone file and return every TXT record, with any
+        surrounding quote characters from the zone-file literal stripped.
+        For classifying TXT records as SPF/DKIM/DMARC specifically, use
+        FindSpfDkimDmarcRecords. A malformed zone file returns a
+        structured error.
+    - name: FindSpfDkimDmarcRecords
+      input: ZoneFileInput
+      output: SpfDkimDmarcRecords
+      description: >-
+        Parse a zone file and classify its TXT records into SPF (text
+        starts with "v=spf1"), DKIM (owner name contains "_domainkey"
+        and text starts with "v=DKIM1"), and DMARC (owner name is/starts
+        with "_dmarc" and text starts with "v=DMARC1") buckets, by pure
+        case-insensitive marker-prefix string matching. This identifies
+        which TXT records are SPF/DKIM/DMARC records — it does not
+        validate the SPF/DKIM/DMARC policy syntax itself. A malformed
+        zone file returns a structured error.
+    - name: ExtractDirectives
+      input: ZoneFileInput
+      output: ZoneDirectives
+      description: >-
+        Parse a zone file and return just its $ORIGIN and $TTL directive
+        values, with has_origin/has_ttl flags distinguishing "absent"
+        from a legitimate empty/zero value. A malformed zone file returns
+        a structured error.
+    - name: CountRecordsByType
+      input: ZoneFileInput
+      output: ZoneSummary
+      description: >-
+        Parse a zone file and return a summary count of records per type
+        (SOA, NS, A, AAAA, CNAME, MX, TXT, SPF, PTR, SRV, CAA, DS) plus
+        the total record count. A malformed zone file returns a
+        structured error.
+    - name: GenerateZoneFile
+      input: GenerateZoneFileInput
+      output: GenerateZoneFileOutput
+      description: >-
+        Generate BIND/RFC1035 zone file text from a structured record set
+        — the inverse of ParseZoneFile. Parsing the generated text with
+        ParseZoneFile reproduces the same structured records (round-trip
+        safe). A structurally invalid input (e.g. an SOA record missing
+        required fields) returns a structured error instead of malformed
+        output.
+    - name: ValidateZoneStructure
+      input: ZoneFileInput
+      output: ZoneValidationResult
+      description: >-
+        Parse a zone file and check basic structural correctness: does it
+        have an SOA record, does it have at least one NS record, and is
+        the SOA serial a valid (non-negative integer) number. Returns
+        is_valid plus a list of specific issues found (e.g.
+        "MISSING_SOA", "MISSING_NS", "NON_NUMERIC_SERIAL") — this is a
+        structural sanity check, not full RFC1035 conformance validation.
+        A zone file the parser cannot process at all returns a structured
+        error instead.
+    - name: ExtractRecordNames
+      input: ZoneFileInput
+      output: RecordNames
+      description: >-
+        Parse a zone file and return every distinct record owner name and
+        referenced host declared anywhere in it (the SOA name, every
+        record's own name, plus the target/host/alias field of
+        NS/CNAME/MX/SRV/PTR records) — deduplicated, in first-seen order.
+        A malformed zone file returns a structured error.
+    - name: NormalizeRecordName
+      input: NormalizeRecordNameInput
+      output: NormalizedRecordName
+      description: >-
+        Resolve a single zone-file record name ("@", a relative label
+        like "www", or an already-FQDN name ending in ".") against a
+        given $ORIGIN, returning both its fully-qualified absolute form
+        (fqdn, always trailing-dot-terminated) and its form relative to
+        origin. Pure string/label logic — does not parse a zone file or
+        perform any DNS lookup.

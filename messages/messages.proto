@@ -1,0 +1,320 @@
+// This file defines the data contracts (messages) for your Axiom package.
+// Every node's --input and --output refers to a message defined here.
+//
+// Run `axiom create message <Name>` to scaffold a new message below.
+// Run `axiom generate` to compile these definitions into language bindings in gen/.
+//
+// DOCUMENTATION
+//   Comments written directly above a message or field declaration are extracted
+//   automatically at publish time and shown in the Axiom registry as documentation.
+//   Write your descriptions there — no separate doc files needed.
+//
+//   Leading comment  (no blank line before the declaration) → registry description ✓
+//   Detached comment (blank line before the declaration)    → ignored by registry  ✗
+//
+// This file is yours to edit. Axiom only appends new message blocks — it never
+// overwrites or removes content you have written.
+//
+// Every node in this package is a pure, deterministic text transform: parse or
+// generate a BIND/RFC1035 zone file. No DNS resolution, no network calls, no
+// wall-clock, no randomness — the zone file is always supplied as text by the
+// caller. Malformed input returns a structured Error, never a crash.
+
+syntax = "proto3";
+
+package christiangeorgelucas.dns_zone_tools;
+
+// A structured parse/validation error. `error` unset (empty code) means success.
+message Error {
+  // A short machine-readable code, e.g. "EMPTY_INPUT", "TOO_LARGE",
+  // "TOO_MANY_RECORDS", "NO_SOA_RECORD", "MALFORMED_ZONE".
+  string code = 1;
+  // A human-readable description of what went wrong.
+  string message = 2;
+}
+
+// Raw BIND/RFC1035 zone file text, taken as input by every parsing/extraction
+// node. Bounded to 2 MiB and 20,000 total resource records before any
+// parsing is attempted — an oversized input returns a structured error
+// (TOO_LARGE) rather than being parsed.
+message ZoneFileInput {
+  string zone_text = 1;
+}
+
+// The SOA (Start of Authority) record — every zone's single authoritative
+// record naming its primary nameserver, admin contact, and refresh timers.
+message SoaRecord {
+  // The owner name of the SOA record (usually "@", the zone origin).
+  string name = 1;
+  // TTL in seconds, 0 when not explicitly set on this record.
+  int32 ttl = 2;
+  bool has_ttl = 3;
+  // The primary (master) nameserver for this zone.
+  string mname = 4;
+  // The admin's mailbox, in DNS-encoded form (e.g. "admin.example.com."
+  // meaning admin@example.com) — not decoded, since the "." vs "@" mapping
+  // is ambiguous for a local-part that itself contains a literal ".".
+  string rname = 5;
+  // The zone's version number; conventionally incremented on every edit.
+  int64 serial = 6;
+  int32 refresh = 7;
+  int32 retry = 8;
+  int32 expire = 9;
+  // The negative-caching TTL (minimum TTL under RFC 2308).
+  int32 minimum = 10;
+  Error error = 11;
+}
+
+// An NS (nameserver) record.
+message NsRecord {
+  string name = 1;
+  string host = 2;
+  int32 ttl = 3;
+  bool has_ttl = 4;
+}
+
+// An A or AAAA (address) record. `version` is 4 or 6.
+message AddressRecord {
+  string name = 1;
+  string address = 2;
+  int32 version = 3;
+  int32 ttl = 4;
+  bool has_ttl = 5;
+}
+
+// A CNAME (canonical name / alias) record.
+message CnameRecord {
+  string name = 1;
+  string target = 2;
+  int32 ttl = 3;
+  bool has_ttl = 4;
+}
+
+// An MX (mail exchange) record.
+message MxRecord {
+  string name = 1;
+  int32 preference = 2;
+  string host = 3;
+  int32 ttl = 4;
+  bool has_ttl = 5;
+}
+
+// A TXT (or SPF-typed) record. `text` has any surrounding quote characters
+// from the zone-file literal stripped.
+message TxtRecord {
+  string name = 1;
+  string text = 2;
+  int32 ttl = 3;
+  bool has_ttl = 4;
+}
+
+// A PTR (pointer / reverse-DNS) record.
+message PtrRecord {
+  string name = 1;
+  // name + "." + the zone's $ORIGIN, when $ORIGIN is present.
+  string fullname = 2;
+  string host = 3;
+  int32 ttl = 4;
+  bool has_ttl = 5;
+}
+
+// An SRV (service location) record.
+message SrvRecord {
+  string name = 1;
+  int32 priority = 2;
+  int32 weight = 3;
+  int32 port = 4;
+  string target = 5;
+  int32 ttl = 6;
+  bool has_ttl = 7;
+}
+
+// A CAA (Certification Authority Authorization) record.
+message CaaRecord {
+  string name = 1;
+  int32 flags = 2;
+  string tag = 3;
+  string value = 4;
+  int32 ttl = 5;
+  bool has_ttl = 6;
+}
+
+// A generic resource record for types without a dedicated message above
+// (e.g. DS) — the record's raw name/value tokens.
+message GenericRecord {
+  string name = 1;
+  string type = 2;
+  int32 ttl = 3;
+  bool has_ttl = 4;
+  // Type-specific fields, e.g. {"key_tag": "...", "algorithm": "...",
+  // "digest_type": "...", "digest": "..."} for a DS record.
+  map<string, string> fields = 5;
+}
+
+// The full zone parsed and grouped by record type — the canonical structured
+// envelope produced by ParseZoneFile and consumed by GenerateZoneFile.
+message ZoneFile {
+  // The zone's $ORIGIN directive value, if present.
+  string origin = 1;
+  bool has_origin = 2;
+  // The zone's $TTL directive value in seconds, if present and numeric.
+  int32 ttl = 3;
+  bool has_ttl = 4;
+  SoaRecord soa = 5;
+  bool has_soa = 6;
+  repeated NsRecord ns = 7;
+  repeated AddressRecord a = 8;
+  repeated AddressRecord aaaa = 9;
+  repeated CnameRecord cname = 10;
+  repeated MxRecord mx = 11;
+  repeated TxtRecord txt = 12;
+  repeated TxtRecord spf = 13;
+  repeated PtrRecord ptr = 14;
+  repeated SrvRecord srv = 15;
+  repeated CaaRecord caa = 16;
+  repeated GenericRecord ds = 17;
+  Error error = 18;
+}
+
+// Input for ListRecordsByType.
+message ListRecordsByTypeInput {
+  string zone_text = 1;
+  // The record type to list, case-insensitive: "SOA", "NS", "A", "AAAA",
+  // "CNAME", "MX", "TXT", "PTR", "SRV", "SPF", "CAA", or "DS".
+  string record_type = 2;
+}
+
+// A uniform list of records of one type, for types not covered by a
+// dedicated extraction node, or when the caller wants a type chosen at
+// runtime.
+message RecordList {
+  string record_type = 1;
+  repeated GenericRecord records = 2;
+  Error error = 3;
+}
+
+// Input for ExtractAddressRecords: filter by IP version.
+message ExtractAddressRecordsInput {
+  string zone_text = 1;
+  // 0 = both A and AAAA (default), 4 = A only, 6 = AAAA only.
+  int32 version_filter = 2;
+}
+
+message AddressRecordList {
+  repeated AddressRecord records = 1;
+  Error error = 2;
+}
+
+message MxRecordList {
+  // Sorted ascending by preference (lower = higher priority, per RFC 5321).
+  repeated MxRecord records = 1;
+  Error error = 2;
+}
+
+message NsRecordList {
+  repeated NsRecord records = 1;
+  Error error = 2;
+}
+
+message CnameRecordList {
+  repeated CnameRecord records = 1;
+  Error error = 2;
+}
+
+message TxtRecordList {
+  repeated TxtRecord records = 1;
+  Error error = 2;
+}
+
+// TXT records classified as SPF/DKIM/DMARC by a pure marker-prefix string
+// match on the record's name and text — this is NOT syntax/semantic
+// validation of the SPF/DKIM/DMARC policy itself, only identification.
+message SpfDkimDmarcRecords {
+  // TXT records whose text starts with "v=spf1" (case-insensitive).
+  repeated TxtRecord spf = 1;
+  // TXT records whose owner name contains "_domainkey" and whose text
+  // starts with "v=DKIM1" (case-insensitive); selector is the name's
+  // first label.
+  repeated TxtRecord dkim = 2;
+  // TXT records whose owner name is (or starts with) "_dmarc" and whose
+  // text starts with "v=DMARC1" (case-insensitive).
+  repeated TxtRecord dmarc = 3;
+  Error error = 4;
+}
+
+// The zone-wide $ORIGIN / $TTL directives.
+message ZoneDirectives {
+  string origin = 1;
+  bool has_origin = 2;
+  int32 ttl = 3;
+  bool has_ttl = 4;
+  Error error = 5;
+}
+
+// A count of records grouped by type, plus the total.
+message RecordTypeCount {
+  string record_type = 1;
+  int32 count = 2;
+}
+
+message ZoneSummary {
+  repeated RecordTypeCount counts_by_type = 1;
+  int32 total_records = 2;
+  Error error = 3;
+}
+
+// Input for GenerateZoneFile: the inverse of ParseZoneFile.
+message GenerateZoneFileInput {
+  ZoneFile zone = 1;
+}
+
+message GenerateZoneFileOutput {
+  string zone_text = 1;
+  Error error = 2;
+}
+
+// A single structural issue found by ValidateZoneStructure.
+message ZoneIssue {
+  // Machine-readable code, e.g. "MISSING_SOA", "MISSING_NS",
+  // "NON_NUMERIC_SERIAL", "DUPLICATE_CNAME", "CNAME_AT_APEX".
+  string code = 1;
+  string message = 2;
+}
+
+message ZoneValidationResult {
+  bool is_valid = 1;
+  bool has_soa = 2;
+  bool has_ns = 3;
+  bool serial_is_numeric = 4;
+  repeated ZoneIssue issues = 5;
+  Error error = 6;
+}
+
+// All distinct record owner names/hosts declared anywhere in the zone
+// (SOA name, every record's name, plus the target/host/alias field of
+// NS/CNAME/MX/SRV/PTR records) — deduplicated, in first-seen order.
+message RecordNames {
+  repeated string names = 1;
+  Error error = 2;
+}
+
+// Input for NormalizeRecordName: resolve a single record name against the
+// zone's origin.
+message NormalizeRecordNameInput {
+  // A record name as it appears in a zone file: "@", a relative label
+  // ("www"), or an already-FQDN name ending in "." ("www.example.com.").
+  string name = 1;
+  // The zone's origin, e.g. "example.com." (trailing dot optional).
+  string origin = 2;
+}
+
+message NormalizedRecordName {
+  // The fully-qualified absolute name, always ending in ".".
+  string fqdn = 1;
+  // The name relative to origin (no trailing dot), or the original FQDN
+  // when it does not fall under origin.
+  string relative = 2;
+  // True if the input was already an absolute (trailing-dot) name.
+  bool was_fqdn = 3;
+  Error error = 4;
+}
