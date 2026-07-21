@@ -1,14 +1,14 @@
 import { GenerateZoneFileInput, GenerateZoneFileOutput } from '../gen/messages_pb';
 import { AxiomContext } from '../gen/axiomContext';
-import { zoneFileToRaw, makeError } from './helpers';
-import * as vendor from './vendor/dnsZonefile';
+import { zoneFileToRaw, makeError, generateDeterministicZoneText } from './helpers';
 
 /**
  * Generate BIND/RFC1035 zone file text from a structured record set — the
  * inverse of ParseZoneFile. Parsing the generated text with ParseZoneFile
- * reproduces the same structured records (round-trip safe). A structurally
- * invalid input (e.g. no SOA record) returns a structured error instead of
- * malformed output.
+ * reproduces the same structured records (round-trip safe). The output is
+ * fully deterministic — no export timestamp or other wall-clock-derived
+ * text is embedded. A structurally invalid input (e.g. no SOA record)
+ * returns a structured error instead of malformed output.
  */
 export function generateZoneFile(ax: AxiomContext, input: GenerateZoneFileInput): GenerateZoneFileOutput {
   const result = new GenerateZoneFileOutput();
@@ -25,7 +25,7 @@ export function generateZoneFile(ax: AxiomContext, input: GenerateZoneFileInput)
   }
 
   try {
-    result.setZoneText(vendor.generate(converted.raw));
+    result.setZoneText(generateDeterministicZoneText(converted.raw));
   } catch (e) {
     const msg = e instanceof globalThis.Error ? e.message : String(e);
     result.setError(makeError('GENERATE_FAILED', `Could not generate zone file text: ${msg}`));

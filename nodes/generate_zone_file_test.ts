@@ -78,4 +78,24 @@ describe('GenerateZoneFile', () => {
     expect(result.hasError()).toBe(true);
     expect(result.getError()!.getCode()).toBe('MISSING_ZONE');
   });
+
+  it('is fully deterministic — no wall-clock-derived export timestamp is embedded', () => {
+    // Regression test: the vendored library's default template embeds
+    // `new Date().toISOString()` in an "; Exported ..." comment line, which
+    // made earlier output non-deterministic across calls with identical
+    // input — directly contradicting this package's documented "no
+    // wall-clock" guarantee. GenerateZoneFile must use a template that
+    // omits it.
+    const input1 = new GenerateZoneFileInput();
+    input1.setZone(buildZone());
+    const input2 = new GenerateZoneFileInput();
+    input2.setZone(buildZone());
+
+    const first = generateZoneFile(testContext, input1);
+    const second = generateZoneFile(testContext, input2);
+
+    expect(first.getZoneText()).toBe(second.getZoneText());
+    expect(first.getZoneText()).not.toContain('Exported');
+    expect(first.getZoneText()).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/); // no ISO timestamp anywhere
+  });
 });

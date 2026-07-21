@@ -20,6 +20,69 @@ import {
 export const MAX_ZONE_TEXT_BYTES = 2 * 1024 * 1024; // 2 MiB
 export const MAX_RECORDS = 20_000;
 
+// A generate() template identical to the vendored library's own
+// defaultTemplate, minus the "; Exported (yyyy-mm-ddThh:mm:ss.sssZ):
+// {datetime}" line. The vendored generate()'s processValues() unconditionally
+// fills {datetime}/{time} from the real wall clock — fine for a human
+// glancing at an exported file, but this package's nodes are documented and
+// tested as pure, deterministic text transforms (same input -> byte-identical
+// output, every time), so GenerateZoneFile uses this template instead of the
+// library's default to keep that guarantee. The vendored algorithm itself is
+// untouched; this is the library's own supported customization point (an
+// optional second argument to generate()), not a fork of its logic.
+const DETERMINISTIC_TEMPLATE = `; Zone: {zone}
+
+{$origin}
+{$ttl}
+
+; SOA Record
+{name} {ttl}\tIN\tSOA\t{mname}{rname}(
+{serial} ;serial
+{refresh} ;refresh
+{retry} ;retry
+{expire} ;expire
+{minimum} ;minimum ttl
+)
+
+; NS Records
+{ns}
+
+; MX Records
+{mx}
+
+; A Records
+{a}
+
+; AAAA Records
+{aaaa}
+
+; CNAME Records
+{cname}
+
+; PTR Records
+{ptr}
+
+; TXT Records
+{txt}
+
+; SRV Records
+{srv}
+
+; SPF Records
+{spf}
+
+; CAA Records
+{caa}
+
+; DS Records
+{ds}
+
+`;
+
+export function generateDeterministicZoneText(raw: vendor.RawZone): string {
+  return vendor.generate(raw, DETERMINISTIC_TEMPLATE);
+}
+
 export function makeError(code: string, message: string): ErrorMsg {
   const err = new ErrorMsg();
   err.setCode(code);
@@ -153,11 +216,23 @@ export function mapMx(r: vendor.RawMxRecord): MxRecord {
   return msg;
 }
 
-// Strips one layer of matching double-quote characters from a zone-file TXT
-// literal (the vendored parser preserves them literally, e.g. `"hello"`).
+// Un-quotes a zone-file TXT-RDATA literal (the vendored parser preserves
+// quote characters literally, e.g. `"hello"`). RFC 1035 TXT-RDATA is a
+// SEQUENCE of one or more <character-string>s — a caller commonly splits a
+// long value (e.g. a DKIM key) across multiple adjacent quoted segments
+// like `"part1" "part2"`, which per RFC 1035/7208 convention are
+// concatenated WITHOUT an inserted separator when read as one value. Match
+// every quoted segment and join their contents; a value with no quotes at
+// all (technically non-conformant but tolerated) is returned unchanged.
 export function stripQuotes(text: string): string {
-  if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
-    return text.slice(1, -1);
+  const segments: string[] = [];
+  const re = /"([^"]*)"/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    segments.push(match[1]);
+  }
+  if (segments.length > 0) {
+    return segments.join('');
   }
   return text;
 }
