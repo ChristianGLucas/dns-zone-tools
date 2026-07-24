@@ -46,12 +46,12 @@ describe('ParseZoneFile', () => {
     expect(result.getError()!.getCode()).toBe('EMPTY_INPUT');
   });
 
-  it('returns a structured error for oversized input instead of parsing it', () => {
+  it('parses a large zone file without crashing — no self-imposed size cap', () => {
     const input = new ZoneFileInput();
-    input.setZoneText('www IN A 192.0.2.1\n'.repeat(200_000)); // well over 2 MiB
+    input.setZoneText('www IN A 192.0.2.1\n'.repeat(200_000)); // well over the old 2 MiB / 20,000-record caps
     const result = parseZoneFile(testContext, input);
-    expect(result.hasError()).toBe(true);
-    expect(result.getError()!.getCode()).toBe('TOO_LARGE');
+    expect(result.hasError()).toBe(false);
+    expect(result.getAList().length).toBe(200_000);
   });
 
   it('does not crash on garbage input — returns an empty-ish structure, not an error, when the parser finds no recognizable records', () => {

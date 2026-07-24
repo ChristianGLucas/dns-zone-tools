@@ -1,5 +1,5 @@
 name: christiangeorgelucas/dns-zone-tools
-version: 0.1.0
+version: 0.1.1
 language: typescript
 description: >-
   Deterministic parsing, inspection, and generation of DNS zone files

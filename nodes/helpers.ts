@@ -14,12 +14,6 @@ import {
   ZoneFile,
 } from '../gen/messages_pb';
 
-// ---------------------------------------------------------------------------
-// Shared bounds. Checked on the raw input before any parsing work.
-// ---------------------------------------------------------------------------
-export const MAX_ZONE_TEXT_BYTES = 2 * 1024 * 1024; // 2 MiB
-export const MAX_RECORDS = 20_000;
-
 // A generate() template identical to the vendored library's own
 // defaultTemplate, minus the "; Exported (yyyy-mm-ddThh:mm:ss.sssZ):
 // {datetime}" line. The vendored generate()'s processValues() unconditionally
@@ -92,16 +86,11 @@ export function makeError(code: string, message: string): ErrorMsg {
 
 export type ParseOutcome = { ok: true; raw: vendor.RawZone } | { ok: false; error: ErrorMsg };
 
-// Parse zone_text with bounds and error handling shared by every node.
+// Parse zone_text with error handling shared by every node. Payload size is
+// bounded by the platform, not by node code.
 export function checkedParse(zoneText: string): ParseOutcome {
   if (typeof zoneText !== 'string' || zoneText.trim().length === 0) {
     return { ok: false, error: makeError('EMPTY_INPUT', 'zone_text is empty.') };
-  }
-  if (Buffer.byteLength(zoneText, 'utf8') > MAX_ZONE_TEXT_BYTES) {
-    return {
-      ok: false,
-      error: makeError('TOO_LARGE', `zone_text exceeds the ${MAX_ZONE_TEXT_BYTES}-byte limit.`),
-    };
   }
 
   let raw: vendor.RawZone;
@@ -110,26 +99,6 @@ export function checkedParse(zoneText: string): ParseOutcome {
   } catch (e) {
     const msg = e instanceof globalThis.Error ? e.message : String(e);
     return { ok: false, error: makeError('MALFORMED_ZONE', `Zone file could not be parsed: ${msg}`) };
-  }
-
-  const total =
-    (raw.soa ? 1 : 0) +
-    (raw.ns?.length ?? 0) +
-    (raw.a?.length ?? 0) +
-    (raw.aaaa?.length ?? 0) +
-    (raw.cname?.length ?? 0) +
-    (raw.mx?.length ?? 0) +
-    (raw.txt?.length ?? 0) +
-    (raw.spf?.length ?? 0) +
-    (raw.ptr?.length ?? 0) +
-    (raw.srv?.length ?? 0) +
-    (raw.caa?.length ?? 0) +
-    (raw.ds?.length ?? 0);
-  if (total > MAX_RECORDS) {
-    return {
-      ok: false,
-      error: makeError('TOO_MANY_RECORDS', `Zone file has ${total} records; the limit is ${MAX_RECORDS}.`),
-    };
   }
 
   return { ok: true, raw };

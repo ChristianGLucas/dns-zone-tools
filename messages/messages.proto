@@ -26,17 +26,15 @@ package christiangeorgelucas.dns_zone_tools;
 
 // A structured parse/validation error. `error` unset (empty code) means success.
 message Error {
-  // A short machine-readable code, e.g. "EMPTY_INPUT", "TOO_LARGE",
-  // "TOO_MANY_RECORDS", "NO_SOA_RECORD", "MALFORMED_ZONE".
+  // A short machine-readable code, e.g. "EMPTY_INPUT", "NO_SOA_RECORD",
+  // "MALFORMED_ZONE".
   string code = 1;
   // A human-readable description of what went wrong.
   string message = 2;
 }
 
 // Raw BIND/RFC1035 zone file text, taken as input by every parsing/extraction
-// node. Bounded to 2 MiB and 20,000 total resource records before any
-// parsing is attempted — an oversized input returns a structured error
-// (TOO_LARGE) rather than being parsed.
+// node.
 message ZoneFileInput {
   string zone_text = 1;
 }
